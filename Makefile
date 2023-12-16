@@ -1,5 +1,15 @@
+compileServer:
+	gcc src/server.c -o server.a
+
+compileClient:
+	gcc src/client.c -o client.a
+
 runServer:
-	gcc src/server.c -o server && ./server
+	make compileServer && ./server.a inet
 
 runClient:
-	gcc src/client.c -o client && ./client
+	make compileClient && ./client.a
+
+build:
+	make compileServer
+	make compileClient

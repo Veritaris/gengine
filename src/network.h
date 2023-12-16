@@ -2,17 +2,28 @@
 // Created by Георгий Имешкенов on 11.12.2023.
 //
 
+#define DEBUG 1
 #define SOCK_PATH "/tmp/gengine.sock"
-#define SOCK_FAM AF_UNIX
+#define INET_ADDR 0x7f000001
+#define INET_PORT 1488
+#define SOCK_FAM AF_INET
 #define SOCK_TYPE SOCK_STREAM
 #define MAXDATABUFFLEN 1024
 #define KEY_ENTER 10
 #define KEY_ESC 27
 #define KEY_SPACE 32
+#define allocwarn(target) printf("unable to alloc mem for '"#target"'\n")
+
+enum ServerType {
+    ERROR = -1,
+    UNIX = 0,
+    LOCAL = 0,
+    INET = 2,
+};
 
 void
 handle_socket_bind(int socket) {
-    printf("\torigin error code: %d\n", errno);
+    printf("\t[error] origin error code: %d\n", errno);
     switch (errno) {
         case EACCES: {
             printf("\tThe address is protected, and the user is not the superuser.\n");
@@ -76,3 +87,16 @@ handle_socket_bind(int socket) {
         }
     }
 }
+
+void
+handle_socket_connect(int socket) {
+    printf("[error] errno: %d\n", errno);
+}
+
+void
+handle_send_error() {
+    printf("[error] errno: %d\n", errno);
+}
+
+void
+start_messaging(int sock_client, char *buff, struct sockaddr *client_addr, socklen_t *client_addr_size);
