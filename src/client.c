@@ -112,6 +112,7 @@ client_inet(char *host, int port) {
     }
     *server_addr_size = sizeof(struct sockaddr_in);
 
+    printf("connecting to server...\n");
     conn = connect(
             sock,
             (const struct sockaddr *) server_addr,
@@ -119,7 +120,7 @@ client_inet(char *host, int port) {
     );
 
     if (conn == -1) {
-        printf("error while connecting to socket\n");
+        printf("error while connecting to server\n");
         handle_socket_connect(sock);
         return -1;
     }
