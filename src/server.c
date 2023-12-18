@@ -97,6 +97,8 @@ serve_inet(const char *host, int port) {
         allocwarn("server socket");
         return;
     }
+//    we want to ensure that sock is closed; also we do no care about result
+    close(server_sock);
 
     server_addr = calloc(1, sizeof(struct sockaddr_in));
     if (server_addr == NULL) {
@@ -104,14 +106,14 @@ serve_inet(const char *host, int port) {
         exit(-1);
     }
     server_addr->sin_family = AF_INET;
-    server_addr->sin_port = port;
+    server_addr->sin_port = htons(port);
     inet_aton(host, &server_addr->sin_addr);
 
     printf("binding socket '%d' with address '%s:%d'\n", server_sock, inet_ntoa(server_addr->sin_addr),
-           server_addr->sin_port);
+           ntohs(server_addr->sin_port));
 
     if (bind(server_sock, (struct sockaddr *) server_addr, sizeof(struct sockaddr_in)) == -1) {
-        printf("unable to bind socket '%s:%d'\n", inet_ntoa(server_addr->sin_addr), server_addr->sin_port);
+        printf("unable to bind socket '%s:%d'\n", inet_ntoa(server_addr->sin_addr), ntohs(server_addr->sin_port));
         handle_socket_bind(server_sock);
         return;
     }
@@ -120,7 +122,7 @@ serve_inet(const char *host, int port) {
 
     if (listen(server_sock, BACKLOG) == -1) {
         printf("unable to start listening at '%s:%d', errno=%d\n", inet_ntoa(server_addr->sin_addr),
-               server_addr->sin_port, errno);
+               ntohs(server_addr->sin_port), errno);
         return;
     }
 

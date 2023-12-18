@@ -103,7 +103,7 @@ client_inet(char *host, int port) {
         exit(-1);
     }
     server_addr->sin_family = AF_INET;
-    server_addr->sin_port = port;
+    server_addr->sin_port = htons(port);
     inet_aton(host, &(server_addr->sin_addr));
 
     server_addr_size = malloc(sizeof(struct sockaddr_in));
@@ -112,7 +112,7 @@ client_inet(char *host, int port) {
     }
     *server_addr_size = sizeof(struct sockaddr_in);
 
-    printf("connecting to server...\n");
+    printf("connecting to server '%s:%d'...\n", inet_ntoa(server_addr->sin_addr), ntohs(server_addr->sin_port));
     conn = connect(
             sock,
             (const struct sockaddr *) server_addr,
