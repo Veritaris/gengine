@@ -1,6 +1,7 @@
 //
 // Created by Георгий Имешкенов on 11.12.2023.
 //
+#include <stdio.h>
 
 #define DEBUG 1
 #define SOCK_PATH "/tmp/gengine.sock"
