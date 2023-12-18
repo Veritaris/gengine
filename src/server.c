@@ -97,8 +97,6 @@ serve_inet(const char *host, int port) {
         allocwarn("server socket");
         return;
     }
-//    we want to ensure that sock is closed; also we do no care about result
-    close(server_sock);
 
     server_addr = calloc(1, sizeof(struct sockaddr_in));
     if (server_addr == NULL) {
@@ -115,6 +113,8 @@ serve_inet(const char *host, int port) {
     if (bind(server_sock, (struct sockaddr *) server_addr, sizeof(struct sockaddr_in)) == -1) {
         printf("unable to bind socket '%s:%d'\n", inet_ntoa(server_addr->sin_addr), ntohs(server_addr->sin_port));
         handle_socket_bind(server_sock);
+//    we want to try to unbind socket on error
+        close(server_sock);
         return;
     }
 

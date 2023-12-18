@@ -35,7 +35,7 @@ handle_socket_bind(int socket) {
             break;
         }
         case EBADF: {
-            printf("\t%d is not a valid file descriptor.", socket);
+            printf("\t%d is not a valid file descriptor.\n", socket);
             break;
         }
         case EINVAL: {
@@ -43,7 +43,7 @@ handle_socket_bind(int socket) {
             break;
         }
         case ENOTSOCK: {
-            printf("\tThe file descriptor '%d' does not refer to a socket.", socket);
+            printf("\tThe file descriptor '%d' does not refer to a socket.\n", socket);
             break;
         }
         case EAFNOSUPPORT: {
