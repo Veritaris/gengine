@@ -5,8 +5,8 @@
 #include <stdlib.h>
 
 #define DEBUG 1
-#define SOCK_PATH "/tmp/gengine.sock"
-#define INET_ADDR "127.0.0.1"
+#define SOCK_PATH "/tmp/gengine.sock\0"
+#define INET_ADDR "127.0.0.1\0"
 #define INET_PORT 10312
 #define SOCK_FAM AF_INET
 #define SOCK_TYPE SOCK_STREAM
@@ -48,8 +48,8 @@ fill_server_info(struct server_info *server_info, int argc, char **argv) {
     char *type = argv[1];
 
 //    initial fill with default params
-    strncpy(server_info->socket_path, SOCK_PATH, strlen(SOCK_PATH));
-    strncpy(server_info->address, INET_ADDR, strlen(INET_ADDR));
+    strncpy(server_info->socket_path, SOCK_PATH, strlen(SOCK_PATH) + 1);
+    strncpy(server_info->address, INET_ADDR, strlen(INET_ADDR) + 1);
     server_info->port = INET_PORT;
 
     switch (argc) {
@@ -72,12 +72,12 @@ fill_server_info(struct server_info *server_info, int argc, char **argv) {
                 server_info->type = UNIX | LOCAL;
                 server_info->sock_fam = AF_UNIX;
                 server_info->sock_type = SOCK_STREAM;
-                strncpy(server_info->socket_path, argv[2], strlen(argv[2]));
+                strncpy(server_info->socket_path, argv[2], strlen(argv[2]) + 1);
             } else if (strcmp(type, "inet") == 0) {
                 server_info->type = INET;
                 server_info->sock_fam = AF_INET;
                 server_info->sock_type = SOCK_DGRAM;
-                strncpy(server_info->address, argv[2], strlen(argv[2]));
+                strncpy(server_info->address, argv[2], strlen(argv[2]) + 1);
             } else {
                 server_info->type = ERROR;
             }
@@ -88,12 +88,12 @@ fill_server_info(struct server_info *server_info, int argc, char **argv) {
                 server_info->type = UNIX | LOCAL;
                 server_info->sock_fam = AF_UNIX;
                 server_info->sock_type = SOCK_STREAM;
-                strncpy(server_info->socket_path, argv[2], strlen(argv[2]));
+                strncpy(server_info->socket_path, argv[2], strlen(argv[2]) + 1);
             } else if (strcmp(type, "inet") == 0) {
                 server_info->type = INET;
                 server_info->sock_fam = AF_INET;
                 server_info->sock_type = SOCK_DGRAM;
-                strncpy(server_info->address, argv[2], strlen(argv[2]));
+                strncpy(server_info->address, argv[2], strlen(argv[2]) + 1);
                 server_info->port = (short) strtol(argv[3], NULL, 10);
             } else {
                 server_info->type = ERROR;
