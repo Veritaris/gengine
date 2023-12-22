@@ -19,6 +19,12 @@
 #define IS_STREAM (server_params->sock_type == SOCK_STREAM)
 #define BIND(SOCK, ADDR) bind(SOCK, (struct sockaddr *) ADDR, sizeof(struct sockaddr_in))
 
+#if !defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE)
+#define REUSEADDR SO_REUSEPORT
+#else
+#define REUSEADDR SO_REUSEADDR
+#endif
+
 enum ServerType {
     ERROR = -1,
     UNIX = 0,

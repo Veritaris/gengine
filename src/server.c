@@ -103,7 +103,7 @@ serve_inet(const struct server_info *server_params) {
     if (setsockopt(
             host_sock,
             SOL_SOCKET,
-            SO_REUSEPORT,
+            REUSEADDR,
             &yes,
             sizeof(int)
     ) == -1) {
