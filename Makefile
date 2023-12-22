@@ -15,8 +15,8 @@ build:
 	make compileClient
 
 build-valgrind:
-	gcc -O0 -std=17 -Wall -ggdb3 src/server.c -o server.valgrind.a
-	gcc -O0 -std=17 -Wall -ggdb3 src/client.c -o client.valgrind.a
+	gcc -O0 -std=c17 -Wall -ggdb3 src/server.c -o server.valgrind.a
+	gcc -O0 -std=c17 -Wall -ggdb3 src/client.c -o client.valgrind.a
 
 run-valgrind-server:
 	valgrind --leak-check=full \
