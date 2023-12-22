@@ -3,20 +3,14 @@
 //
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <unistd.h>
 #include <printf.h>
-#include <errno.h>
 #include <string.h>
 #include <stdlib.h>
-#include <netdb.h>
 #include <arpa/inet.h>
 #include "network.h"
 
 int
-send_msg(int *conn, int sock, char *buf, const struct sockaddr *server_addr, socklen_t *server_addr_size);
-
-int
-client_unix(const char *socket_path) {
+client_unix(const struct server_info *server_params) {
     int sock;
     int conn;
     char *buf;
@@ -24,7 +18,13 @@ client_unix(const char *socket_path) {
     struct sockaddr_un *server_addr;
     int sent_bytes;
 
-    sock = socket(AF_UNIX, SOCK_STREAM, 0);
+    sock = socket(server_params->sock_fam, server_params->sock_type, 0);
+
+    if (sock == -1) {
+        printf("error while creating socket\n");
+        perror("socket");
+        return -1;
+    }
 
     server_addr = malloc(sizeof(struct sockaddr_un));
     if (server_addr == NULL) {
@@ -32,14 +32,8 @@ client_unix(const char *socket_path) {
         exit(-1);
     }
 
-    server_addr->sun_family = AF_UNIX;
-    strncpy(server_addr->sun_path, socket_path, sizeof(server_addr->sun_path));
-
-    if (sock == -1) {
-        printf("error while creating socket\n");
-        handle_socket_bind(sock);
-        return -1;
-    }
+    server_addr->sun_family = server_params->sock_fam;
+    strncpy(server_addr->sun_path, server_params->socket_path, sizeof(server_addr->sun_path));
 
     server_addr_size = malloc(sizeof(socklen_t));
     if (server_addr_size == NULL) {
@@ -56,7 +50,7 @@ client_unix(const char *socket_path) {
 
     if (conn == -1) {
         printf("error while connecting to socket\n");
-        handle_socket_connect(sock);
+        perror("connect");
         return -1;
     }
 
@@ -82,18 +76,19 @@ client_unix(const char *socket_path) {
 }
 
 int
-client_inet(char *host, int port) {
+client_inet(const struct server_info *server_params) {
     int sock;
     int conn;
     char *buf;
     socklen_t *server_addr_size;
     struct sockaddr_in *server_addr;
     int sent_bytes;
+    int udp_use_connect = 0;
 
-    sock = socket(AF_INET, SOCK_STREAM, 0);
+    sock = socket(server_params->sock_fam, server_params->sock_type, 0);
     if (sock == -1) {
         printf("error while creating socket\n");
-        handle_socket_bind(sock);
+        perror("socket");
         return -1;
     }
 
@@ -102,9 +97,20 @@ client_inet(char *host, int port) {
         allocwarn("server_addr address");
         exit(-1);
     }
-    server_addr->sin_family = AF_INET;
-    server_addr->sin_port = htons(port);
-    inet_aton(host, &(server_addr->sin_addr));
+    server_addr->sin_family = server_params->sock_fam;
+    server_addr->sin_port = htons(server_params->port);
+
+    switch (server_params->sock_fam) {
+        case AF_INET:
+            inet_pton(AF_INET, server_params->address, &(server_addr->sin_addr));
+            break;
+        case AF_INET6:
+            inet_pton(AF_INET6, server_params->address, &(server_addr->sin_addr));
+            break;
+        default:
+            printf("unknown sock_fam: %d\n", server_params->sock_fam);
+            exit(-1);
+    }
 
     server_addr_size = malloc(sizeof(struct sockaddr_in));
     if (server_addr_size == NULL) {
@@ -112,20 +118,22 @@ client_inet(char *host, int port) {
     }
     *server_addr_size = sizeof(struct sockaddr_in);
 
-    printf("connecting to server '%s:%d'...\n", inet_ntoa(server_addr->sin_addr), ntohs(server_addr->sin_port));
-    conn = connect(
-            sock,
-            (const struct sockaddr *) server_addr,
-            sizeof(struct sockaddr_in)
-    );
+    if (IS_STREAM | udp_use_connect) {
+        printf("connecting to server '%s:%d'...\n", inet_ntoa(server_addr->sin_addr), ntohs(server_addr->sin_port));
+        conn = connect(
+                sock,
+                (const struct sockaddr *) server_addr,
+                sizeof(struct sockaddr_in)
+        );
 
-    if (conn == -1) {
-        printf("error while connecting to server\n");
-        handle_socket_connect(sock);
-        return -1;
+        if (conn == -1) {
+            printf("error while connecting to server\n");
+            perror("connect");
+            return -1;
+        }
+
+        printf("connected to '%s:%d'\n", inet_ntoa(server_addr->sin_addr), ntohs(server_addr->sin_port));
     }
-
-    printf("connected to server_addr\n");
 
     buf = calloc(1, MAXDATABUFFLEN);
     if (buf == NULL) {
@@ -150,14 +158,22 @@ send_msg(int *conn, int sock, char *buf, const struct sockaddr *server_addr, soc
     int len;
     int input_char;
     int sent_bytes;
+    int need_send = 0;
 
     len = 0;
     putchar('>');
-    while ((input_char = getchar()) != KEY_ENTER) {
-        if (input_char == KEY_ESC) {
-            return -2;
+    while (!need_send) {
+        input_char = getchar();
+
+        switch (input_char) {
+            case KEY_ESC:
+                return -2;
+            case KEY_ENTER:
+                need_send = 1;
+                break;
+            default:
+                buf[len++] = (char) input_char;
         }
-        buf[len++] = (char) input_char;
     }
 
     sent_bytes = (int) sendto(
@@ -168,10 +184,16 @@ send_msg(int *conn, int sock, char *buf, const struct sockaddr *server_addr, soc
             server_addr,
             *server_addr_size
     );
-    if (DEBUG) printf("[debug] %d bytes sent\n", sent_bytes);
+    if (DEBUG)
+        printf(
+                "[debug] %d bytes sent to '%s:%d'\n",
+                sent_bytes,
+                inet_ntoa(((struct sockaddr_in *) server_addr)->sin_addr),
+                ntohs(((struct sockaddr_in *) server_addr)->sin_port)
+        );
 
     if (sent_bytes < 0) {
-        handle_send_error();
+        perror("sendto");
     }
 
     if (strcmp(buf, "exit") == 0) {
@@ -184,79 +206,35 @@ send_msg(int *conn, int sock, char *buf, const struct sockaddr *server_addr, soc
 
 int
 main(int argc, char **argv) {
-    enum ServerType connect_type = ERROR;
-    char *socket_path = SOCK_PATH;
-    char *type;
-    char *host = "127.0.0.1";
-    int port = 10312;
-
-    switch (argc) {
-        case 1:
-            break;
-        case 2: {
-            type = argv[1];
-            if (strcmp(type, "unix") == 0 || strcmp(type, "local") == 0) {
-                connect_type = UNIX | LOCAL;
-            } else if (strcmp(type, "inet") == 0) {
-                connect_type = INET;
-            } else {
-                connect_type = ERROR;
-            }
-            break;
-        }
-        case 3: {
-            type = argv[1];
-            if (strcmp(type, "unix") == 0 || strcmp(type, "local") == 0) {
-                connect_type = UNIX | LOCAL;
-                socket_path = argv[2];
-            } else if (strcmp(type, "inet") == 0) {
-                connect_type = INET;
-                host = argv[2];
-            } else {
-                connect_type = ERROR;
-            }
-            break;
-        }
-        case 4: {
-            type = argv[1];
-            if (strcmp(type, "unix") == 0 || strcmp(type, "local") == 0) {
-                connect_type = UNIX | LOCAL;
-                socket_path = argv[2];
-            } else if (strcmp(type, "inet") == 0) {
-                connect_type = INET;
-                host = argv[2];
-                port = (int) strtol(argv[3], NULL, 10);
-            } else {
-                connect_type = ERROR;
-            }
-            break;
-        }
-        default:
-            type = argv[1];
-            if (strcmp(type, "unix") == 0 || strcmp(type, "local") == 0) {
-                connect_type = UNIX | LOCAL;
-                socket_path = argv[2];
-            } else if (strcmp(type, "inet") == 0) {
-                connect_type = INET;
-                host = argv[2];
-                port = (int) strtol(argv[3], NULL, 10);
-            } else {
-                connect_type = ERROR;
-            }
-            break;
+    char c;
+    struct server_info *server_params;
+    server_params = malloc(server_info_size);
+    if (server_params == NULL) {
+        allocwarn("struct server_info");
+        return -1;
     }
 
-    switch (connect_type) {
+    if (argc == 1) {
+        printf("usage: %s <unix|local> [descriptor path] or <inet> [host] [port]\n", argv[0]);
+        return -1;
+    }
+
+    fill_server_info(server_params, argc, argv);
+
+    switch (server_params->type) {
+        case UNIX:
+            printf("running unix client\n");
+            client_unix(server_params);
+            break;
+        case INET:
+            printf("running inet client\n");
+            client_inet(server_params);
+            break;
         case ERROR:
             printf("unknown server type\n");
             printf("usage: %s <unix|local> [descriptor path] or <inet> [host] [port]\n", argv[0]);
             break;
-        case UNIX:
-            client_unix(socket_path);
-            break;
-        case INET:
-            client_inet(host, port);
-            break;
     }
+    free(server_params);
     return 0;
 }

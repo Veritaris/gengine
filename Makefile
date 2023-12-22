@@ -8,7 +8,7 @@ runServer:
 	make compileServer && ./server.a inet
 
 runClient:
-	make compileClient && ./client.a
+	make compileClient && ./client.a inet
 
 build:
 	make compileServer
