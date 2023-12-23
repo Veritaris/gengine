@@ -213,7 +213,9 @@ handle_client(int sock_client, char *buff, struct sockaddr *client_addr, socklen
         );
 
         if (recv_bytes > 0) {
-            buff[recv_bytes] = '\0';
+            if (recv_bytes < MAXDATABUFFLEN) {
+                buff[++recv_bytes] = '\0';
+            }
             result = malloc(recv_bytes);
             memcpy(result, buff, recv_bytes);
             printf("%s\n", result);
