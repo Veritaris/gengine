@@ -181,9 +181,9 @@ serve_inet(const struct server_info *server_params) {
     }
 
     if (IS_STREAM) {
-        handle_client(peer_sock, buf, (struct sockaddr *) &peer_addr, peer_addr_size);
+        handle_client(peer_sock, buf, (struct sockaddr *) peer_addr, peer_addr_size);
     } else {
-        handle_client(host_sock, buf, (struct sockaddr *) &peer_addr, peer_addr_size);
+        handle_client(host_sock, buf, (struct sockaddr *) peer_addr, peer_addr_size);
     }
 
     free(buf);
