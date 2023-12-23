@@ -160,7 +160,7 @@ send_msg(int *conn, int sock, char *buf, const struct sockaddr *server_addr, soc
     int sent_bytes;
     int need_send = 0;
 
-    len = 0;
+    len = -1;
     putchar('>');
     while (!need_send) {
         input_char = getchar();
@@ -172,9 +172,10 @@ send_msg(int *conn, int sock, char *buf, const struct sockaddr *server_addr, soc
                 need_send = 1;
                 break;
             default:
-                buf[len++] = (char) input_char;
+                buf[++len] = (char) input_char;
         }
     }
+    buf[++len] = '\0';
 
     sent_bytes = (int) sendto(
             sock,
@@ -206,7 +207,6 @@ send_msg(int *conn, int sock, char *buf, const struct sockaddr *server_addr, soc
 
 int
 main(int argc, char **argv) {
-    char c;
     struct server_info *server_params;
     server_params = malloc(server_info_size);
     if (server_params == NULL) {
