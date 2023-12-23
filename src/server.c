@@ -189,6 +189,7 @@ serve_inet(const struct server_info *server_params) {
     free(buf);
     free(peer_addr);
     free(peer_addr_size);
+    free(host_addr);
 
     if (close(host_sock) == -1) {
         printf("unable to close host_sock\n");
