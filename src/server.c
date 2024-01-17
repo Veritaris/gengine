@@ -199,7 +199,7 @@ serve_inet(const struct server_info_s *server_params) {
 
     char *prefix = malloc(INET6_ADDRSTRLEN);
     in_addr_t *nclient_addr = &((struct sockaddr_in *) peer_addr)->sin_addr.s_addr;
-    printf("%s exited\n", inet_ntop(AF_INET, (const void *) nclient_addr, prefix, *peer_addr_size));
+    printf("%s executed stopserver\n", inet_ntop(AF_INET, (const void *) nclient_addr, prefix, *peer_addr_size));
     free(prefix);
 }
 
@@ -238,6 +238,11 @@ handle_client(int sock_client, char *buff, struct sockaddr *client_addr, socklen
                 printf("received 'exit' command, stopping the server\n");
                 break;
             }
+
+            if (strcmp(result, "disconnect") == 0) {
+                printf("client [%s] disconnected\n", inet_ntop(AF_INET, (const void *) nclient_addr, prefix, *client_addr_size));
+            }
+
 
             memset(buff, 0, recv_bytes);
             memset(result, 0, recv_bytes);
