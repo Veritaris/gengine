@@ -1,3 +1,6 @@
 [submodule "sdl2"]
 	path = sdl2
 	url = https://github.com/libsdl-org/SDL.git
+[submodule "unicode"]
+	path = unicode
+	url = https://github.com/Veritaris/unicode

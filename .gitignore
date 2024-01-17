@@ -4,3 +4,4 @@
 *.out
 *.a
 /target/
+/CMakeFiles/

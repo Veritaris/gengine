@@ -11,11 +11,12 @@
 #include "network.h"
 #include <signal.h>
 #include <arpa/inet.h>
+#include <netdb.h>
 
 #define BACKLOG 16
 
 void
-serve_unix(const struct server_info *server_params) {
+serve_unix(const struct server_info_s *server_params) {
     int sock, sock_client;
     socklen_t peer_addr_size, addr_size;
     struct sockaddr_un *server;
@@ -65,7 +66,7 @@ serve_unix(const struct server_info *server_params) {
     }
     printf("client '%s' connected\n", peer_addr.sun_path);
 
-    buf = calloc(1, MAXDATABUFFLEN);
+    buf = calloc(1, MAXNETWORKBUFFSIZE);
 
     handle_client(sock_client, buf, (struct sockaddr *) &peer_addr, &peer_addr_size);
 
@@ -84,7 +85,7 @@ serve_unix(const struct server_info *server_params) {
 }
 
 void
-serve_inet(const struct server_info *server_params) {
+serve_inet(const struct server_info_s *server_params) {
     int host_sock, peer_sock;
     socklen_t *peer_addr_size;
     struct sockaddr_in *host_addr, *peer_addr;
@@ -174,7 +175,7 @@ serve_inet(const struct server_info *server_params) {
         printf("client '%s:%d' connected\n", inet_ntoa(peer_addr->sin_addr), ntohl(peer_addr->sin_port));
     }
 
-    buf = calloc(1, MAXDATABUFFLEN);
+    buf = calloc(1, MAXNETWORKBUFFSIZE);
     if (buf == NULL) {
         allocwarn("data buffer on server side");
         exit(-1);
@@ -203,23 +204,32 @@ void
 handle_client(int sock_client, char *buff, struct sockaddr *client_addr, socklen_t *client_addr_size) {
     ssize_t recv_bytes;
     char *result;
+    char *prefix;
     while (1) {
         recv_bytes = recvfrom(
                 sock_client,
                 buff,
-                MAXDATABUFFLEN,
+                MAXNETWORKBUFFSIZE,
                 0,
                 client_addr,
                 client_addr_size
         );
 
         if (recv_bytes > 0) {
-            if (recv_bytes < MAXDATABUFFLEN) {
+            if (recv_bytes < MAXNETWORKBUFFSIZE) {
                 buff[++recv_bytes] = '\0';
             }
             result = malloc(recv_bytes);
             memcpy(result, buff, recv_bytes);
-            printf("%s\n", result);
+
+            malloc_save(char *, prefix, NETWORK_BUFFER_OFFSET);
+
+            in_addr_t *nclient_addr = &((struct sockaddr_in *) client_addr)->sin_addr.s_addr;
+            printf(
+                    "[%s] ",
+                    inet_ntop(AF_INET, (const void *) nclient_addr, prefix, *client_addr_size)
+            );
+            printf("%s\n", result + NETWORK_BUFFER_OFFSET);
 
             if (strcmp(result, "exit") == 0) {
                 printf("received 'exit' command, stopping the server\n");
@@ -233,6 +243,7 @@ handle_client(int sock_client, char *buff, struct sockaddr *client_addr, socklen
         usleep((unsigned int) 1e4);
     }
     free(result);
+    free(prefix);
 }
 
 void
@@ -244,12 +255,8 @@ sigint_handler(int signum) {
 int
 main(int argc, char **argv) {
     signal(SIGINT, sigint_handler);
-    struct server_info *server_params;
-    server_params = malloc(server_info_size);
-    if (server_params == NULL) {
-        allocwarn("struct server_info");
-        return -1;
-    }
+    struct server_info_s *server_params;
+    malloc_save(struct server_info_s *, server_params, server_info_size);
 
     if (argc == 1) {
         printf("usage: %s <unix|local> [descriptor path] or <inet> [host] [port]\n", argv[0]);
