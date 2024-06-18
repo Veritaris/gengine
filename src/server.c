@@ -3,15 +3,24 @@
 //
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/errno.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <string.h>
 #include <printf.h>
-#include <sys/errno.h>
 #include <unistd.h>
-#include "network.h"
 #include <signal.h>
-#include <arpa/inet.h>
-#include <netdb.h>
+
+#include "network.h"
+#include "packets.h"
+
+#ifndef ARRAYLIST_H_INCLUDED
+
+#include "array_list.h"
+
+#endif
+
+#include "unicode.h"
 
 #define BACKLOG 16
 
@@ -68,7 +77,7 @@ serve_unix(const struct server_info_s *server_params) {
 
     buf = calloc(1, MAXNETWORKBUFFSIZE);
 
-    handle_client(sock_client, buf, (struct sockaddr *) &peer_addr, &peer_addr_size);
+    handle_client(NULL, sock_client, buf, (struct sockaddr *) &peer_addr, &peer_addr_size);
 
     free(buf);
 
@@ -180,11 +189,13 @@ serve_inet(const struct server_info_s *server_params) {
         allocwarn("data buffer on server side");
         exit(-1);
     }
+    puts("starting listening for incoming data");
 
+    ArrayList_s *server_players = ArrayList(NULL);
     if (IS_STREAM) {
-        handle_client(peer_sock, buf, (struct sockaddr *) peer_addr, peer_addr_size);
+        handle_client(server_players, peer_sock, buf, (struct sockaddr *) peer_addr, peer_addr_size);
     } else {
-        handle_client(host_sock, buf, (struct sockaddr *) peer_addr, peer_addr_size);
+        handle_client(server_players, host_sock, buf, (struct sockaddr *) peer_addr, peer_addr_size);
     }
 
     free(buf);
@@ -203,11 +214,24 @@ serve_inet(const struct server_info_s *server_params) {
     free(prefix);
 }
 
+typedef struct server_player_obj {
+    player_obj *player;
+    struct sockaddr_in *network_address;
+} server_player_obj;
+
 void
-handle_client(int sock_client, char *buff, struct sockaddr *client_addr, socklen_t *client_addr_size) {
+handle_client(
+        ArrayList_s *server_players,
+        int sock_client,
+        char *buff,
+        struct sockaddr *client_addr,
+        socklen_t *client_addr_size
+) {
     ssize_t recv_bytes;
-    char *result;
+    unsigned char *result;
     char *prefix;
+    server_player_obj *mp_player;
+
     while (1) {
         recv_bytes = recvfrom(
                 sock_client,
@@ -217,35 +241,72 @@ handle_client(int sock_client, char *buff, struct sockaddr *client_addr, socklen
                 client_addr,
                 client_addr_size
         );
-
-        if (recv_bytes > 0) {
+        if (recv_bytes >= 8) {
             if (recv_bytes < MAXNETWORKBUFFSIZE) {
                 buff[++recv_bytes] = '\0';
             }
+
             result = malloc(recv_bytes);
             memcpy(result, buff, recv_bytes);
 
-            malloc_save(char *, prefix, NETWORK_BUFFER_OFFSET);
+            malloc_safe(char *, prefix, NETWORK_BUFFER_OFFSET);
 
             in_addr_t *nclient_addr = &((struct sockaddr_in *) client_addr)->sin_addr.s_addr;
             printf(
-                    "[%s] ",
-                    inet_ntop(AF_INET, (const void *) nclient_addr, prefix, *client_addr_size)
+                    "[%s:%d] ",
+                    inet_ntop(AF_INET, (const void *) nclient_addr, prefix, *client_addr_size),
+                    ntohs(((struct sockaddr_in *) client_addr)->sin_port)
             );
-            printf("%s\n", result + NETWORK_BUFFER_OFFSET);
 
-            if (strcmp(result, "stopserver") == 0) {
+            int packet_type = read_int_from_buff(&result);
+            int player_id = read_int_from_buff(&result);
+            unsigned char *packet_body = result;
+
+            switch (packet_type) {
+                case LOGIN:
+                    malloc_safe(server_player_obj *, mp_player, sizeof(server_player_obj));
+                    malloc_safe(player_obj *, mp_player->player, sizeof(server_player_obj));
+                    malloc_safe(player_pos *, mp_player->player->pos, sizeof(player_pos));
+                    malloc_safe(float *, mp_player->player->pos->x, sizeof(float));
+                    malloc_safe(float *, mp_player->player->pos->y, sizeof(float));
+                    mp_player->player->id = player_id;
+                    *mp_player->player->pos->x = read_float_from_buff(&packet_body);
+                    *mp_player->player->pos->y = read_float_from_buff(&packet_body);
+                    mp_player->player->username = read_into_unicode_string((char *) packet_body);
+                    server_players->insert(server_players, player_id, mp_player);
+                    printf(
+                            "mp_player <id=%d, login='%s'> connected: \n", player_id, packet_body
+                    );
+                    break;
+                case MOVE:
+                    mp_player = server_players->get(server_players, player_id);
+                    if (mp_player == NULL) {
+                        printf("unknown mp_player tried to access server: %d\n", player_id);
+                        break;
+                    }
+                    printf("mp_player %s moved\n", compress_into_bytes_array(mp_player->player->username)->data);
+                    break;
+                case DISCONNECT:
+                    printf("mp_player %s disconnected\n", packet_body);
+                    break;
+                default:
+                    printf("unknown packet %d and payload: %s\n", (int) *result, result + 4);
+                    break;
+            }
+
+            if (strcmp((char *) result, "stopserver") == 0) {
                 printf("received 'exit' command, stopping the server\n");
                 break;
             }
 
-            if (strcmp(result, "disconnect") == 0) {
-                printf("client [%s] disconnected\n", inet_ntop(AF_INET, (const void *) nclient_addr, prefix, *client_addr_size));
+            if (strncmp((char *) result, "disconnect", MAXNETWORKBUFFSIZE) == 0) {
+                printf("client [%s] disconnected\n",
+                       inet_ntop(AF_INET, (const void *) nclient_addr, prefix, *client_addr_size));
             }
 
-
             memset(buff, 0, recv_bytes);
-            memset(result, 0, recv_bytes);
+//            memset(result - 2 * sizeof(int), 0, recv_bytes);
+            free(result - 2 * sizeof(int));
         }
 
         usleep((unsigned int) 1e4);
@@ -264,7 +325,7 @@ int
 main(int argc, char **argv) {
     signal(SIGINT, sigint_handler);
     struct server_info_s *server_params;
-    malloc_save(struct server_info_s *, server_params, server_info_size);
+    malloc_safe(struct server_info_s *, server_params, server_info_size);
 
     if (argc == 1) {
         printf("usage: %s <unix|local> [descriptor path] or <inet> [host] [port]\n", argv[0]);
@@ -275,11 +336,11 @@ main(int argc, char **argv) {
 
     switch (server_params->type) {
         case UNIX:
-            printf("running unix client\n");
+            printf("running unix server\n");
             serve_unix(server_params);
             break;
         case INET:
-            printf("running inet client\n");
+            printf("running inet server\n");
             serve_inet(server_params);
             break;
         case ERROR:

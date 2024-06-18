@@ -5,34 +5,51 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
-file(GLOB SOURCES
-        "${SRC_DIR}/*.h"
-        "${SRC_DIR}/*.cpp"
-)
 
 add_definitions(-DRESOURCES_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/resources/\")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O0")
 
-find_package(unicode)
-if (${unicode_FOUND})
-    message("unicode lib found")
-else ()
-    message("unicode lib not found")
-endif ()
+include_directories(${SRC_DIR}/include)
 
-find_package(SDL2)
-if (${SDL2_FOUND})
-    message(STATUS "Found SDL2")
-    include_directories(${SDL2_INCLUDE_DIRS})
-    add_library(SHARED
-            src/network.h
-            src/client.c
-            src/server.c
-    )
-    add_executable(${PROJECT_NAME} ${SOURCES}
-            #            src/network.h
-            #            src/server.c
-    )
-    target_link_libraries(${PROJECT_NAME} ${SDL2_LIBRARIES})
-else ()
-    message(STATUS "Could not locate SDL2, pizdec")
-endif ()
+add_subdirectory(unicode)
+
+find_package(SDL3 REQUIRED CONFIG REQUIRED COMPONENTS SDL3-shared)
+
+link_libraries(
+    SDL3::SDL3
+    unicode
+)
+
+add_library(c-client STATIC
+    src/client.c
+)
+
+add_library(c-server STATIC
+    src/server.c
+)
+
+add_library(array_list STATIC
+    src/array_list.c
+)
+
+add_executable(${PROJECT_NAME}-client
+    src/game_client.cpp
+)
+
+add_executable(${PROJECT_NAME}-server
+    src/server.c
+)
+
+target_compile_definitions(${PROJECT_NAME}-client
+    PRIVATE RESOURCES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/resources/"
+)
+
+target_link_libraries(c-client)
+target_link_libraries(c-server
+    INTERFACE SDL3::SDL3
+)
+target_link_libraries(${PROJECT_NAME}-client)
+target_link_libraries(${PROJECT_NAME}-server
+    PRIVATE array_list
+)

@@ -1,7 +1,9 @@
-/cmake-build-debug/
 /.idea/
 .DS_Store
 *.out
 *.a
 /target/
 /CMakeFiles/
+/cmake-build-debug*
+build
+.cmake

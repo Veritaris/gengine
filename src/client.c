@@ -2,11 +2,13 @@
 // Created by Георгий Имешкенов on 11.12.2023.
 //
 #include <sys/socket.h>
+#include <arpa/inet.h>
 #include <sys/un.h>
 #include <printf.h>
 #include <string.h>
 #include <stdlib.h>
-#include <arpa/inet.h>
+#include <SDL3/SDL.h>
+
 #include "network.h"
 
 int
@@ -93,7 +95,8 @@ client_inet(const struct server_info_s *server_params) {
         return -1;
     }
 
-    calloc_save(struct sockaddr_in *, server_addr, 1, sizeof(struct sockaddr_in));
+    calloc_safe(
+            struct sockaddr_in *, server_addr, 1, sizeof(struct sockaddr_in));
     server_addr->sin_family = server_params->sock_fam;
     server_addr->sin_port = htons(server_params->port);
 
@@ -109,7 +112,7 @@ client_inet(const struct server_info_s *server_params) {
             exit(-1);
     }
 
-    malloc_save(socklen_t *, server_addr_size, sizeof(struct sockaddr_in));
+    malloc_safe(socklen_t *, server_addr_size, sizeof(struct sockaddr_in));
     *server_addr_size = sizeof(struct sockaddr_in);
 
     if (IS_STREAM | udp_use_connect) {
@@ -129,7 +132,8 @@ client_inet(const struct server_info_s *server_params) {
         printf("connected to '%s:%d'\n", inet_ntoa(server_addr->sin_addr), ntohs(server_addr->sin_port));
     }
 
-    calloc_save(char *, buf, 1, MAXNETWORKBUFFSIZE);
+    calloc_safe(
+            char *, buf, 1, MAXNETWORKBUFFSIZE);
 
     while (1) {
         sent_bytes = send_msg_internal(&conn, sock, buf, (const struct sockaddr *) server_addr, server_addr_size);
@@ -144,7 +148,7 @@ client_inet(const struct server_info_s *server_params) {
 }
 
 struct client_s *
-create_client(const struct server_info_s *server_params) {
+create_client(const struct server_info_s *server_params, long buff_size, unsigned char *buff) {
     int *sock;
     socklen_t *server_addr_size;
     struct sockaddr_in *server_addr;
@@ -154,12 +158,14 @@ create_client(const struct server_info_s *server_params) {
 
     *sock = socket(server_params->sock_fam, server_params->sock_type, 0);
     if (*sock == -1) {
-        printf("error while creating socket\n");
+        puts("error while creating socket");
         perror("socket");
         return NULL;
     }
+    puts("socket inited");
 
-    calloc_save(struct sockaddr_in *, server_addr, 1, sizeof(struct sockaddr_in));
+    calloc_safe(
+            struct sockaddr_in *, server_addr, 1, sizeof(struct sockaddr_in));
 
     server_addr->sin_family = server_params->sock_fam;
     server_addr->sin_port = htons(server_params->port);
@@ -176,9 +182,30 @@ create_client(const struct server_info_s *server_params) {
             exit(-1);
     }
 
-    malloc_save(socklen_t *, server_addr_size, sizeof(struct sockaddr_in));
+    printf("allocating mem for client struct...");
+    malloc_safe(socklen_t *, server_addr_size, sizeof(struct sockaddr_in));
     *server_addr_size = sizeof(struct sockaddr_in);
-    malloc_save(struct client_s *, client, client_size);
+    malloc_safe(
+            struct client_s *, client, client_size)
+    puts("done");
+    puts("allocating mem for client buffer wrapper...");
+    malloc_safe(
+            struct buffer_s *, client->buffer, sizeof(struct buffer_s));
+    client->buffer->max_len = buff_size;
+    puts("done");
+
+    puts("allocating mem for client buf...");
+    if (buff == NULL) {
+        puts("external buffer not provided, creating a new one...");
+        calloc_safe(
+                unsigned char *, client->buffer->data, client->buffer->max_len, sizeof(char))
+    } else {
+        puts("external buffer provided, using it...");
+        calloc_safe(
+                unsigned char *, buff, client->buffer->max_len, sizeof(char))
+        client->buffer->data = buff;
+    }
+    puts("done");
 
     client->socket = sock;
     client->host_addr = server_addr;
@@ -188,30 +215,48 @@ create_client(const struct server_info_s *server_params) {
 }
 
 int
-send_message(const struct client_s *client, char *buf) {
+send_message(const struct client_s *client, unsigned char *buf) {
     int sent_bytes;
     sent_bytes = (int) sendto(
             *client->socket,
             buf,
-            NETWORK_BUFFER_OFFSET + strnlen(buf + NETWORK_BUFFER_OFFSET, MAXNETWORKBUFFSIZE),
+//            NETWORK_BUFFER_OFFSET + 4 + 4 + strnlen((char *) (buf + 4 + 4 + NETWORK_BUFFER_OFFSET), MAXNETWORKBUFFSIZE),
+            client->buffer->fill,
             MSG_NOSIGNAL,
             (struct sockaddr *) client->host_addr,
             *client->host_addr_len
     );
+    int recv_bytes;
+//    recv_bytes = recvfrom(
+//            sock_client,
+//            buff,
+//            MAXNETWORKBUFFSIZE,
+//            0,
+//            client_addr,
+//            client_addr_size
+//    );
     return sent_bytes;
 }
 
 int
-send_message_and_flush(const struct client_s *client, char *buf) {
+send_message_with_client_only(const struct client_s *client) {
+    return send_message(client, client->buffer->data);
+}
+
+int
+send_message_and_flush(const struct client_s *client, unsigned char *buf) {
     int sent_bytes;
     sent_bytes = send_message(client, buf);
     memset(buf, 0, sent_bytes + 1);
     return sent_bytes;
 }
 
+
 int
 send_msg_internal(int *conn, int sock, char *buf, const struct sockaddr *server_addr, socklen_t *server_addr_size) {
-//    TODO
+    player_obj *player = (player_obj *) (malloc(sizeof(struct player_obj_s)));
+    player->pos->x = 0;
+    player->pos->y = 0;
+
     return -2;
 }
-
