@@ -1,29 +1,28 @@
 //
 // Created by Георгий Имешкенов on 22.01.2024.
 //
-#include <libc.h>
+#include <string.h>
+
+#include "array_list.h"
 
 #ifndef ARRAYLIST_H_INCLUDED
-
-#include "include/array_list.h"
 
 #endif
 
 static void
-IndexError(ArrayList_s *self, size_t index) {
+IndexError(ArrayList_t *self, size_t index) {
     printf(
-            "[error] IndexError: list index (index=%lu) out of range [0, %lu]\n",
-            index,
-//            (size_t) (self->size(self) == 0 ? 0 : self->size(self))
-            self->capacity
+        "[error] IndexError: list index (index=%lu) out of range [0, %lu]\n",
+        index,
+        self->capacity
     );
 }
 
 /*
  * Prints ArrayList as array of ints and NULLs if void pointer met
  */
-static void
-repr(ArrayList_s *self) {
+__attribute__((unused)) static void
+repr(ArrayList_t *self) {
     putchar('[');
     for (int i = 0; i < self->_size; i++) {
         if (self->data[i] != NULL) {
@@ -42,12 +41,15 @@ repr(ArrayList_s *self) {
  * Resizes ArrayList from capacity to 2 * capacity
  */
 static void
-resize(ArrayList_s *self) {
+resize(ArrayList_t *self) {
 #ifdef STRICT_ACCESS_CHECK
-//    void **tmp = realloc(self->data, self->capacity * sizeof(size_t) * 2);
-    self->data = realloc(self->data, self->capacity * sizeof(size_t) * 2);
+    any tmp;
+    cmalloc_safe(tmp, self->capacity * sizeof(size_t) * 2)
+    memcpy(tmp, self->data, self->capacity * sizeof(size_t));
     if (self->data == NULL) {
         printf("unable to reallocate memory for ArrayList\n");
+        free(tmp);
+        free_al(self);
         exit(-1);
     }
 #else
@@ -57,6 +59,8 @@ resize(ArrayList_s *self) {
         exit(-1);
     }
 #endif
+    free(self->data);
+    self->data = tmp;
     self->capacity *= 2;
 }
 
@@ -65,7 +69,7 @@ resize(ArrayList_s *self) {
  * are lost but list[start+len]
  * Example:
  * ```
- *  ArrayList_s *list = ArrayList(NULL);
+ *  ArrayList_t *list = ArrayList(NULL);
     int idata[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
 
     for (int i = 0; i < 10; i++) {
@@ -80,11 +84,11 @@ resize(ArrayList_s *self) {
  * [0, 1, 2, 5, 6, 7, 8, 9,]
  */
 static void
-shl(ArrayList_s *self, size_t start, size_t len) {
+shl(ArrayList_t *self, size_t start, size_t len) {
     memmove(
-            self->data + start,
-            self->data + start + len,
-            (self->_size - (start + len)) * sizeof(size_t)
+        self->data + start,
+        self->data + start + len,
+        (self->_size - (start + len)) * sizeof(size_t)
     );
     self->_size -= len;
 }
@@ -94,7 +98,7 @@ shl(ArrayList_s *self, size_t start, size_t len) {
  * may result to unsafe void pointer dereference
  * Example:
  * ```
-    ArrayList_s *list = ArrayList(NULL);
+    ArrayList_t *list = ArrayList(NULL);
     int idata[10] = {0, 1, 2, 5, 6, 7, 8, 9};
 
     for (int i = 0; i < 10; i++) {
@@ -110,29 +114,29 @@ shl(ArrayList_s *self, size_t start, size_t len) {
  * [0, 1, 2, NULL, NULL, 5, 6, 9, 8, 9,]
  */
 static void
-shr(ArrayList_s *self, size_t start, size_t len) {
+shr(ArrayList_t *self, size_t start, size_t len) {
     if (self->_size + len + 1 >= self->capacity) {
         resize(self);
     }
 
     memmove(
-            self->data + start + len,
-            self->data + start,
-            (self->_size - start) * sizeof(size_t)
+        self->data + start + len,
+        self->data + start,
+        (self->_size - start) * sizeof(size_t)
     );
 
     for (size_t i = start; i < start + len; i++) {
         self->data[i] = NULL;
     }
 
-    self->_size += len;
+    self->_size += 1;
 }
 
 /*
  * Set element at `index` to `element`
  */
 static void *
-set(ArrayList_s *self, size_t index, void *element) {
+set(ArrayList_t *self, size_t index, void *element) {
     if (index >= self->_size) {
         IndexError(self, index);
 #ifdef STRICT_ACCESS_CHECK
@@ -148,7 +152,7 @@ set(ArrayList_s *self, size_t index, void *element) {
  * Inserts `element` at `index` with `shr(self, index, 1)` - moving all elements right from `index` by 1
  */
 static void *
-insert(ArrayList_s *self, size_t index, void *element) {
+insert(ArrayList_t *self, size_t index, void *element) {
     if (index >= self->capacity) {
         IndexError(self, index);
 #ifdef STRICT_ACCESS_CHECK
@@ -157,7 +161,7 @@ insert(ArrayList_s *self, size_t index, void *element) {
         return NULL;
 #endif
     }
-
+    if (index < self->_size)
     shr(self, index, 1);
     self->data[index] = element;
 
@@ -168,7 +172,7 @@ insert(ArrayList_s *self, size_t index, void *element) {
  * Return element at `index`
  */
 static void *
-get(ArrayList_s *self, size_t index) {
+get(ArrayList_t *self, size_t index) {
     if (index >= self->capacity) {
         IndexError(self, index);
 #ifdef STRICT_ACCESS_CHECK
@@ -187,7 +191,7 @@ get(ArrayList_s *self, size_t index) {
  * Removes element at `index`
  */
 static void *
-removeAt(ArrayList_s *self, size_t index) {
+removeAt(ArrayList_t *self, size_t index) {
     if (index >= self->_size) {
         IndexError(self, index);
 #ifdef STRICT_ACCESS_CHECK
@@ -206,13 +210,12 @@ removeAt(ArrayList_s *self, size_t index) {
  * Push `element` at the end of ArrayList. Resizes array if 1 or 0 places left for new elements
  */
 static void *
-push(ArrayList_s *self, void *element) {
+push(ArrayList_t *self, void *element) {
     if (self->_size + 1 >= self->capacity) {
         resize(self);
     }
 
-    self->data[self->_size] = element;
-    self->_size += 1;
+    self->data[self->_size++] = element;
 
     return element;
 }
@@ -222,16 +225,15 @@ push(ArrayList_s *self, void *element) {
  * be accessed via internal `self->data[self->_size]`, instead it moves last element "pointer" by -1
  */
 static void *
-pop(ArrayList_s *self) {
-    self->_size -= 1;
-    return self->data[self->_size];
+pop(ArrayList_t *self) {
+    return self->data[self->_size--];
 }
 
 /*
  * Return index of first element in ArrayList that equals to `element`, -1 otherwise
  */
 static ssize_t
-indexOf(ArrayList_s *self, void *element) {
+indexOf(ArrayList_t *self, void *element) {
     for (int i = 0; i < self->_size;) {
         if (self->data[i++] == element) {
             return i;
@@ -244,7 +246,7 @@ indexOf(ArrayList_s *self, void *element) {
  * Return number of elements in ArrayList
  */
 static size_t
-size(ArrayList_s *self) {
+size(ArrayList_t *self) {
     return self->_size;
 }
 
@@ -252,7 +254,7 @@ size(ArrayList_s *self) {
  * Clean ArrayList from data. Does not remove elements from list, instead sets _size to 0.
  */
 static size_t
-clear(ArrayList_s *self) {
+clear(ArrayList_t *self) {
     size_t old_size = self->_size;
     self->_size = 0;
 
@@ -263,14 +265,14 @@ clear(ArrayList_s *self) {
  * Completely frees memory allocated for ArrayList together with all it's elements
  */
 static void
-free_al(ArrayList_s *self) {
+free_al(ArrayList_t *self) {
     for (int i = 0; i < self->_size; i++) {
         free(self->data[i]);
     }
     free(self);
 }
 
-ArrayList_s *
+ArrayList_t *
 ArrayList(const size_t *init_capacity) {
     size_t capacity = 16;
 
@@ -288,16 +290,8 @@ ArrayList(const size_t *init_capacity) {
         return NULL;
 #endif
     }
-    ArrayList_s *array_list = malloc(
-            sizeof(int) +
-            sizeof(int) +
-            sizeof(size_t) +
-            sizeof(size_t) +
-            sizeof(size_t) +
-            sizeof(size_t) +
-            sizeof(size_t) +
-            sizeof(size_t)
-    );
+    ArrayList_t *array_list;
+    cmalloc_safe(array_list, sizeof(ArrayList_t))
 
     array_list->capacity = capacity;
     array_list->_size = 0;

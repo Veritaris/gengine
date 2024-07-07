@@ -7,9 +7,26 @@
 #include <printf.h>
 #include <string.h>
 #include <stdlib.h>
-#include <SDL3/SDL.h>
+#include <pthread.h>
+#include <unistd.h>
 
 #include "network.h"
+#include "deque.h"
+
+struct window_dims_s {
+    unsigned int width;
+    unsigned int height;
+};
+
+typedef struct client_game_state {
+    struct window_dims_s *window_dims;
+    player_obj *player;
+    unsigned int network_used: 1;
+    unsigned int _unused_flags: 7;
+    long long local_tick_counter;
+    struct client_s *network_client;
+    Deque_t *network_queue;
+} client_game_state;
 
 int
 client_unix(const struct server_info_s *server_params) {
@@ -220,22 +237,33 @@ send_message(const struct client_s *client, unsigned char *buf) {
     sent_bytes = (int) sendto(
             *client->socket,
             buf,
-//            NETWORK_BUFFER_OFFSET + 4 + 4 + strnlen((char *) (buf + 4 + 4 + NETWORK_BUFFER_OFFSET), MAXNETWORKBUFFSIZE),
             client->buffer->fill,
             MSG_NOSIGNAL,
             (struct sockaddr *) client->host_addr,
             *client->host_addr_len
     );
     int recv_bytes;
-//    recv_bytes = recvfrom(
-//            sock_client,
-//            buff,
-//            MAXNETWORKBUFFSIZE,
-//            0,
-//            client_addr,
-//            client_addr_size
-//    );
+    unsigned char *in_buff;
+    malloc_safe(unsigned char*, in_buff, MAXNETWORKBUFFSIZE)
+
+    recv_bytes = recvfrom(
+            *client->socket,
+            in_buff,
+            MAXNETWORKBUFFSIZE,
+            0,
+            (struct sockaddr *) client->host_addr,
+            client->host_addr_len
+    );
+    printf("received: %d bytes, value: %d\n", recv_bytes, (int) *in_buff);
     return sent_bytes;
+}
+
+void
+start_network_thread(client_game_state *game_state) {
+    while (1) {
+        usleep(1e6);
+        game_state->local_tick_counter++;
+    }
 }
 
 int

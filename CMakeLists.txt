@@ -11,6 +11,8 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O0")
 
 include_directories(${SRC_DIR}/include)
+include_directories(${SRC_DIR}/dsa/include)
+include_directories(${SRC_DIR}/common/include)
 
 add_subdirectory(unicode)
 
@@ -29,8 +31,10 @@ add_library(c-server STATIC
     src/server.c
 )
 
-add_library(array_list STATIC
-    src/array_list.c
+add_library(dsa STATIC
+    src/dsa/impl/array_list.c
+    src/dsa/impl/deque.c
+    src/dsa/include/hashmap.h
 )
 
 add_executable(${PROJECT_NAME}-client
@@ -51,5 +55,5 @@ target_link_libraries(c-server
 )
 target_link_libraries(${PROJECT_NAME}-client)
 target_link_libraries(${PROJECT_NAME}-server
-    PRIVATE array_list
+    PRIVATE dsa
 )

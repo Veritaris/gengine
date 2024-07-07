@@ -11,26 +11,26 @@
 #include <unistd.h>
 #include <signal.h>
 
+#include "unicode.h"
+
 #include "network.h"
 #include "packets.h"
 
 #ifndef ARRAYLIST_H_INCLUDED
 
-#include "array_list.h"
-
 #endif
 
-#include "unicode.h"
 
 #define BACKLOG 16
 
 void
 serve_unix(const struct server_info_s *server_params) {
     int sock, sock_client;
-    socklen_t peer_addr_size, addr_size;
+    socklen_t *peer_addr_size, addr_size;
     struct sockaddr_un *server;
-    struct sockaddr_un peer_addr;
-    char *buf;
+    struct sockaddr_un *peer_addr;
+    char *in_buff;
+    unsigned char *out_buff;
 
     unlink(server_params->socket_path);
 
@@ -65,21 +65,38 @@ serve_unix(const struct server_info_s *server_params) {
 
     printf("accepting connection...\n");
 
-    peer_addr_size = sizeof(struct sockaddr);
-    sock_client = accept(sock, (struct sockaddr *) &peer_addr, &peer_addr_size);
+    *peer_addr_size = sizeof(struct sockaddr);
+    sock_client = accept(sock, (struct sockaddr *) peer_addr, peer_addr_size);
 
     if (sock_client == -1) {
         printf("unable to accept connection: %s\n", server_params->socket_path);
         perror("accept");
         return;
     }
-    printf("client '%s' connected\n", peer_addr.sun_path);
+    printf("client '%s' connected\n", peer_addr->sun_path);
 
-    buf = calloc(1, MAXNETWORKBUFFSIZE);
+    in_buff = calloc(1, MAXNETWORKBUFFSIZE);
+    out_buff = calloc(1, MAXNETWORKBUFFSIZE);
+    if (in_buff == NULL || out_buff == NULL) {
+        allocwarn("data buffer on server side");
+        exit(-1);
+    }
 
-    handle_client(NULL, sock_client, buf, (struct sockaddr *) &peer_addr, &peer_addr_size);
+    puts("starting listening for incoming data");
 
-    free(buf);
+    ArrayList_t *server_players = ArrayList(NULL);
+
+    handle_client(
+        server_players,
+        sock_client,
+        in_buff,
+        out_buff,
+        (struct sockaddr *) peer_addr,
+        peer_addr_size
+    );
+
+    free(in_buff);
+    free(out_buff);
 
     if (close(sock) == -1) {
         printf("unable to close sock\n");
@@ -98,7 +115,8 @@ serve_inet(const struct server_info_s *server_params) {
     int host_sock, peer_sock;
     socklen_t *peer_addr_size;
     struct sockaddr_in *host_addr, *peer_addr;
-    char *buf;
+    char *in_buff;
+    unsigned char *out_buff;
     int yes = 1;
 
     printf("starting inet server at '%s:%d'\n", server_params->address, server_params->port);
@@ -111,11 +129,11 @@ serve_inet(const struct server_info_s *server_params) {
     }
 
     if (setsockopt(
-            host_sock,
-            SOL_SOCKET,
-            SO_REUSEADDR,
-            &yes,
-            sizeof(int)
+        host_sock,
+        SOL_SOCKET,
+        SO_REUSEADDR,
+        &yes,
+        sizeof(int)
     ) == -1) {
         perror("setsockopt");
     }
@@ -141,10 +159,10 @@ serve_inet(const struct server_info_s *server_params) {
     }
 
     printf(
-            "binding socket '%d' with address '%s:%d'\n",
-            host_sock,
-            inet_ntoa(host_addr->sin_addr),
-            ntohs(host_addr->sin_port)
+        "binding socket '%d' with address '%s:%d'\n",
+        host_sock,
+        inet_ntoa(host_addr->sin_addr),
+        ntohs(host_addr->sin_port)
     );
 
     if (BIND(host_sock, host_addr) == -1) {
@@ -184,21 +202,24 @@ serve_inet(const struct server_info_s *server_params) {
         printf("client '%s:%d' connected\n", inet_ntoa(peer_addr->sin_addr), ntohl(peer_addr->sin_port));
     }
 
-    buf = calloc(1, MAXNETWORKBUFFSIZE);
-    if (buf == NULL) {
+    in_buff = calloc(1, MAXNETWORKBUFFSIZE);
+    out_buff = calloc(1, MAXNETWORKBUFFSIZE);
+    if (in_buff == NULL || out_buff == NULL) {
         allocwarn("data buffer on server side");
         exit(-1);
     }
     puts("starting listening for incoming data");
 
-    ArrayList_s *server_players = ArrayList(NULL);
+    ArrayList_t *server_players = ArrayList(NULL);
+
     if (IS_STREAM) {
-        handle_client(server_players, peer_sock, buf, (struct sockaddr *) peer_addr, peer_addr_size);
+        handle_client(server_players, peer_sock, in_buff, out_buff, (struct sockaddr *) peer_addr, peer_addr_size);
     } else {
-        handle_client(server_players, host_sock, buf, (struct sockaddr *) peer_addr, peer_addr_size);
+        handle_client(server_players, host_sock, in_buff, out_buff, (struct sockaddr *) peer_addr, peer_addr_size);
     }
 
-    free(buf);
+    free(in_buff);
+    free(out_buff);
     free(peer_addr);
     free(peer_addr_size);
     free(host_addr);
@@ -214,79 +235,158 @@ serve_inet(const struct server_info_s *server_params) {
     free(prefix);
 }
 
+typedef struct server_player_network_s {
+    socklen_t addr_len;
+    struct sockaddr_in *address;
+} server_player_network;
+
 typedef struct server_player_obj {
     player_obj *player;
-    struct sockaddr_in *network_address;
+    server_player_network *network;
 } server_player_obj;
 
 void
+construct_mp_player(server_player_obj **mp_player) {
+    cmalloc_safe((*mp_player), sizeof(server_player_obj))
+    cmalloc_safe((*mp_player)->player, sizeof(player_obj))
+    cmalloc_safe((*mp_player)->player->pos, sizeof(player_pos))
+    cmalloc_safe((*mp_player)->player->pos->x, sizeof(float))
+    cmalloc_safe((*mp_player)->player->pos->y, sizeof(float))
+    cmalloc_safe((*mp_player)->player->username, sizeof(UnicodeString))
+    cmalloc_safe((*mp_player)->player->body, sizeof(SDL_FRect))
+    cmalloc_safe((*mp_player)->network, sizeof(server_player_network))
+    cmalloc_safe((*mp_player)->network->address, sizeof(struct sockaddr_in))
+}
+
+void
 handle_client(
-        ArrayList_s *server_players,
-        int sock_client,
-        char *buff,
-        struct sockaddr *client_addr,
-        socklen_t *client_addr_size
+    ArrayList_t *server_players,
+    int sock_client,
+    char *in_buff,
+    unsigned char *out_buff,
+    struct sockaddr *client_addr,
+    socklen_t *client_addr_size
 ) {
-    ssize_t recv_bytes;
-    unsigned char *result;
-    char *prefix;
-    server_player_obj *mp_player;
+    unsigned char *result = NULL;
+    char *prefix = NULL;
+    server_player_obj *mp_player = NULL;
+    size_t recv_bytes = 0;
+    size_t sent_bytes = 0;
 
     while (1) {
         recv_bytes = recvfrom(
-                sock_client,
-                buff,
-                MAXNETWORKBUFFSIZE,
-                0,
-                client_addr,
-                client_addr_size
+            sock_client,
+            in_buff,
+            MAXNETWORKBUFFSIZE,
+            0,
+            client_addr,
+            client_addr_size
         );
-        if (recv_bytes >= 8) {
+        if (recv_bytes >= 2 * sizeof(int)) {
             if (recv_bytes < MAXNETWORKBUFFSIZE) {
-                buff[++recv_bytes] = '\0';
+                in_buff[++recv_bytes] = '\0';
             }
 
-            result = malloc(recv_bytes);
-            memcpy(result, buff, recv_bytes);
+            cmalloc_safe(result, recv_bytes)
+            memcpy(result, in_buff, recv_bytes);
 
-            malloc_safe(char *, prefix, NETWORK_BUFFER_OFFSET);
+            cmalloc_safe(prefix, NETWORK_BUFFER_OFFSET);
 
             in_addr_t *nclient_addr = &((struct sockaddr_in *) client_addr)->sin_addr.s_addr;
             printf(
-                    "[%s:%d] ",
-                    inet_ntop(AF_INET, (const void *) nclient_addr, prefix, *client_addr_size),
-                    ntohs(((struct sockaddr_in *) client_addr)->sin_port)
+                "[%s:%d] ",
+                inet_ntop(AF_INET, (const void *) nclient_addr, prefix, *client_addr_size),
+                ntohs(((struct sockaddr_in *) client_addr)->sin_port)
             );
 
             int packet_type = read_int_from_buff(&result);
             int player_id = read_int_from_buff(&result);
-            unsigned char *packet_body = result;
+
+            unsigned char *packet_body = NULL;
+            cmalloc_safe(packet_body, recv_bytes - 2 * sizeof(int));
+            memcpy(packet_body, result, recv_bytes - 2 * sizeof(int));
+            size_t packet_body_ptr = (size_t) packet_body;  // store packet body ptr to free it later and not care about offset calculation
 
             switch (packet_type) {
                 case LOGIN:
-                    malloc_safe(server_player_obj *, mp_player, sizeof(server_player_obj));
-                    malloc_safe(player_obj *, mp_player->player, sizeof(server_player_obj));
-                    malloc_safe(player_pos *, mp_player->player->pos, sizeof(player_pos));
-                    malloc_safe(float *, mp_player->player->pos->x, sizeof(float));
-                    malloc_safe(float *, mp_player->player->pos->y, sizeof(float));
-                    mp_player->player->id = player_id;
+                    construct_mp_player(&mp_player);
+
                     *mp_player->player->pos->x = read_float_from_buff(&packet_body);
                     *mp_player->player->pos->y = read_float_from_buff(&packet_body);
                     mp_player->player->username = read_into_unicode_string((char *) packet_body);
-                    server_players->insert(server_players, player_id, mp_player);
+                    memcpy(mp_player->network->address, client_addr, sizeof(struct sockaddr_in));
+                    memcpy(&mp_player->network->addr_len, client_addr_size, sizeof(size_t));
+
+                    size_t last_player_index = server_players->size(server_players);
+                    mp_player->player->id = (int) last_player_index;
+                    server_players->push(server_players, mp_player);
                     printf(
-                            "mp_player <id=%d, login='%s'> connected: \n", player_id, packet_body
+                        "mp_player <id=%d, login='%s'> connected: \n", mp_player->player->id, packet_body
+                    );
+                    sent_bytes += write_int_to_buff(out_buff, sent_bytes, 0, mp_player->player->id);
+
+                    sendto(
+                        sock_client,
+                        out_buff,
+                        sent_bytes,
+                        0,
+                        (const struct sockaddr *) mp_player->network->address,
+                        mp_player->network->addr_len
                     );
                     break;
                 case MOVE:
                     mp_player = server_players->get(server_players, player_id);
+
                     if (mp_player == NULL) {
                         printf("unknown mp_player tried to access server: %d\n", player_id);
+                        sendto(
+                            sock_client,
+                            out_buff,
+                            sent_bytes,
+                            0,
+                            client_addr,
+                            *client_addr_size
+                        );
                         break;
                     }
+                    *(mp_player->player->pos->x) = read_float_from_buff(&packet_body);
+                    *(mp_player->player->pos->y) = read_float_from_buff(&packet_body);
                     printf("mp_player %s moved\n", compress_into_bytes_array(mp_player->player->username)->data);
+                    sent_bytes += write_int_to_buff(out_buff, sent_bytes, 0, mp_player->player->id);
+                    sent_bytes += write_float_to_buff(out_buff, sent_bytes, 0, *mp_player->player->pos->x);
+                    sent_bytes += write_float_to_buff(out_buff, sent_bytes, 0, *mp_player->player->pos->y);
+                    sendto(
+                        sock_client,
+                        out_buff,
+                        sent_bytes,
+                        0,
+                        (const struct sockaddr *) mp_player->network->address,
+                        mp_player->network->addr_len
+                    );
                     break;
                 case DISCONNECT:
+                    mp_player = server_players->get(server_players, player_id);
+                    if (mp_player == NULL) {
+                        printf("unknown mp_player tried to access server: %d\n", player_id);
+                        sendto(
+                            sock_client,
+                            out_buff,
+                            sent_bytes,
+                            0,
+                            client_addr,
+                            *client_addr_size
+                        );
+                        break;
+                    }
+                    sent_bytes = write_int_to_buff(out_buff, sent_bytes, 0, mp_player->player->id);
+                    sendto(
+                        sock_client,
+                        out_buff,
+                        sent_bytes,
+                        0,
+                        (const struct sockaddr *) mp_player->network->address,
+                        mp_player->network->addr_len
+                    );
                     printf("mp_player %s disconnected\n", packet_body);
                     break;
                 default:
@@ -294,18 +394,10 @@ handle_client(
                     break;
             }
 
-            if (strcmp((char *) result, "stopserver") == 0) {
-                printf("received 'exit' command, stopping the server\n");
-                break;
-            }
-
-            if (strncmp((char *) result, "disconnect", MAXNETWORKBUFFSIZE) == 0) {
-                printf("client [%s] disconnected\n",
-                       inet_ntop(AF_INET, (const void *) nclient_addr, prefix, *client_addr_size));
-            }
-
-            memset(buff, 0, recv_bytes);
-//            memset(result - 2 * sizeof(int), 0, recv_bytes);
+            memset(in_buff, 0, recv_bytes);
+            memset(out_buff, 0, sent_bytes);
+            sent_bytes = 0;
+            free((void *) packet_body_ptr);
             free(result - 2 * sizeof(int));
         }
 

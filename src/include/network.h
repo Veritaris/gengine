@@ -3,9 +3,11 @@
 //
 #include <stdio.h>
 #include <stdlib.h>
+
+#include <SDL3/SDL.h>
+
 #include "array_list.h"
 #include "unicode.h"
-#include <SDL3/SDL.h>
 
 #define DEBUG 1
 #define SOCK_PATH "/tmp/gengine.sock\0"
@@ -17,35 +19,7 @@
 #define KEY_ENTER 10
 #define KEY_ESC 27
 #define KEY_SPACE 32
-#define allocwarn(target) printf("unable to alloc mem for '"#target"'\n")
 
-#define malloc_safe(cast, var, var_size) \
-    var = (cast) malloc(var_size); \
-    if (var == NULL) {                                     \
-        printf("failed to malloc for '"#var"' in '%s' at '%d'\n", __FILE__, __LINE__-2);                                        \
-        exit(-1);\
-    }
-
-#define cmalloc_safe(var, var_size) \
-    var = malloc(var_size); \
-    if (var == NULL) {                                     \
-        printf("failed to malloc for '"#var"' in '%s' at '%d'\n", __FILE__, __LINE__-2);                                        \
-        exit(-1);\
-    }
-
-#define calloc_safe(cast, var, amount, var_size) \
-    var = (cast) calloc(amount, var_size); \
-    if (var == NULL) {                                     \
-        printf("failed to calloc for '"#var"' in '%s' at '%d'\n", __FILE__, __LINE__-2);                                        \
-        exit(-1);\
-    }
-
-#define ccalloc_safe (var, amount, var_size) \
-    var = calloc(amount, var_size); \
-    if (var == NULL) {                                     \
-        printf("failed to calloc for '"#var"' in '%s' at '%d'\n", __FILE__, __LINE__-2);                                        \
-        exit(-1);\
-    }
 #define IS_STREAM (server_params->sock_type == SOCK_STREAM)
 #define BIND(SOCK, ADDR) bind(SOCK, (struct sockaddr *) ADDR, sizeof(struct sockaddr_in))
 
@@ -156,33 +130,50 @@ int
 send_msg_internal(int *conn, int sock, char *buf, const struct sockaddr *server_addr, socklen_t *server_addr_size);
 
 size_t
+write_int_to_buff(unsigned char *buff, size_t offset, size_t limit, int num);
+
+size_t
+write_float_to_buff(unsigned char *buff, size_t offset, size_t limit, float num);
+
+
+size_t
 write_int_to_network_client(struct client_s *network_client, int num) {
     if (network_client->buffer->fill - int_size < 0) return 1;
 
-    for (int i = 0; i < int_size;) {
-        network_client->buffer->data[network_client->buffer->fill++] = *((&num + i++));
-    }
+    network_client->buffer->fill = write_int_to_buff(
+            network_client->buffer->data,
+            network_client->buffer->fill,
+            0,
+            num
+    );
     return network_client->buffer->fill;
 }
 
 size_t
-write_int_to_buff(unsigned char *buff, int offset, int limit, int num) {
-    if (limit - int_size < 0) return 1;
-    int new_offset = offset;
-    for (int i = 0; i < int_size;) {
-        *(buff + new_offset++) = *(&num + i++);
-    }
-    return new_offset;
+write_int_to_buff(unsigned char *buff, size_t offset, size_t limit, int num) {
+    if (limit > 0 && limit - int_size < 0) return 1;
+    *(buff + offset) = num;
+    return offset + int_size;
 }
 
 size_t
 write_float_to_network_client(struct client_s *network_client, float num) {
     if (network_client->buffer->fill - int_size < 0) return 1;
 
-    for (int i = 0; i < int_size;) {
-        *(network_client->buffer->data + network_client->buffer->fill++) = *(&num + i++);
-    }
+    network_client->buffer->fill = write_float_to_buff(
+        network_client->buffer->data,
+        network_client->buffer->fill,
+        0,
+        num
+    );
     return network_client->buffer->fill;
+}
+
+size_t
+write_float_to_buff(unsigned char *buff, size_t offset, size_t limit, float num) {
+    if (limit > 0 && limit - float_size < 0) return 1;
+    *(buff + offset) = num;
+    return offset + float_size;
 }
 
 int
@@ -218,8 +209,14 @@ read_float_from_buff(unsigned char **buff) {
 }
 
 void
-handle_client(ArrayList_s *server_players, int sock_client, char *buff, struct sockaddr *client_addr,
-              socklen_t *client_addr_size);
+handle_client(
+    ArrayList_t *server_players,
+    int sock_client,
+    char *in_buff,
+    unsigned char *out_buff,
+    struct sockaddr *client_addr,
+    socklen_t *client_addr_size
+);
 
 typedef struct player_pos_s {
     float *x;
@@ -227,9 +224,9 @@ typedef struct player_pos_s {
 } player_pos;
 
 typedef struct player_obj_s {
-    player_pos *pos;
-    unsigned int color;
-    UnicodeString *username;
     int id;
+    unsigned int color;
+    player_pos *pos;
+    UnicodeString *username;
     SDL_FRect *body;
 } player_obj;

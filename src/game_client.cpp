@@ -10,7 +10,7 @@
 
 #include <cmath>
 #include <SDL3/SDL.h>
-#include <libc.h>
+#include <unistd.h>
 
 
 extern "C" {
@@ -29,20 +29,12 @@ const unsigned int ALPHA_MASK = 0x000000ff;
 
 bool running = true;
 struct client_s *network_client;
-struct window_dims_s {
-    unsigned int width;
-    unsigned int height;
-};
-typedef struct client_game_state {
-    window_dims_s *window_dims;
-    player_obj *player;
-} client_game_state;
 
 typedef void (*quit_handler_t)();
 
-typedef void (*keydown_handler_t)(SDL_Keycode, client_game_state *);
+typedef void (*keydown_handler_t)(SDL_Scancode, volatile client_game_state *);
 
-typedef void (*keyup_handler_t)(SDL_Keycode, client_game_state *);
+typedef void (*keyup_handler_t)(SDL_Scancode, volatile client_game_state *);
 
 struct {
     quit_handler_t quit;
@@ -82,22 +74,21 @@ write_string_to_network_buff(const char *data) {
 size_t
 write_player_to_network_buff(const player_obj *player_obj) {
     if (
-            network_client->buffer->fill == MAXNETWORKBUFFSIZE ||
-            (network_client->buffer->fill - 4 * int_size + 1) < 0
-            ) {
+        network_client->buffer->fill == MAXNETWORKBUFFSIZE ||
+        (network_client->buffer->fill - 4 * int_size + 1) < 0
+        ) {
         return 1;
     }
 
     write_int_to_network_client(network_client, player_obj->id);        // 4
     write_float_to_network_client(network_client, *player_obj->pos->x); // 4
     write_float_to_network_client(network_client, *player_obj->pos->y); // 4
-//    network_client->buffer->fill += int_size + 2 * float_size;
     return 0;
 }
 
 void SDL_SetRenderDrawColor(SDL_Renderer *, unsigned int);
 
-void connect_to_server(player_obj *);
+void connect_to_server(volatile client_game_state *game_state, player_obj *);
 //12900112
 //719700991
 
@@ -106,86 +97,87 @@ void connect_to_server(player_obj *);
 
 int last_entity_id = 0;
 
+bool keyread_locked = false;
+
 void
-handle_keydown(SDL_Keycode keycode, client_game_state *game_state) {
+handle_keydown(SDL_Scancode keycode, volatile client_game_state *game_state) {
     player_obj *player = game_state->player;
     window_dims_s *window_dims = game_state->window_dims;
     int player_changed = 1;
 
     switch (keycode) {
-        case SDLK_ESCAPE: {
+        case SDL_SCANCODE_ESCAPE: {
             running = false;
             break;
         }
-        case SDLK_UP:
-        case SDLK_w:
-        case 1094:
+        case SDL_SCANCODE_UP:
+        case SDL_SCANCODE_W:
+//        case 1094:
             *player->pos->y = std::clamp(
-                    (*player->pos->y - 1 * PLAYER_TARGET_VELOCITY),
-                    0.0f,
-                    (static_cast<float> (window_dims->height) - player->body->h)
+                (*player->pos->y - 1 * PLAYER_TARGET_VELOCITY),
+                0.0f,
+                (static_cast<float> (window_dims->height) - player->body->h)
             );
             break;
-        case SDLK_DOWN:
-        case SDLK_s:
-        case 1099:
+        case SDL_SCANCODE_DOWN:
+        case SDL_SCANCODE_S:
+//        case 1099:
             *player->pos->y = std::clamp(
-                    (*player->pos->y + 1 * PLAYER_TARGET_VELOCITY),
-                    0.0f,
-                    (static_cast<float> (window_dims->height) - player->body->h)
+                (*player->pos->y + 1 * PLAYER_TARGET_VELOCITY),
+                0.0f,
+                (static_cast<float> (window_dims->height) - player->body->h)
             );
             break;
-        case SDLK_LEFT:
-        case SDLK_a:
-        case 1092:
+        case SDL_SCANCODE_LEFT:
+        case SDL_SCANCODE_A:
+//        case 1092:
             *player->pos->x = std::clamp(
-                    (*player->pos->x - 1 * PLAYER_TARGET_VELOCITY),
-                    0.0f,
-                    (static_cast<float> (window_dims->width) - player->body->w)
+                (*player->pos->x - 1 * PLAYER_TARGET_VELOCITY),
+                0.0f,
+                (static_cast<float> (window_dims->width) - player->body->w)
             );
             break;
-        case SDLK_RIGHT:
-        case SDLK_d:
-        case 1074:
+        case SDL_SCANCODE_RIGHT:
+        case SDL_SCANCODE_D:
+//        case 1074:
             *player->pos->x = std::clamp(
-                    (*player->pos->x + 1 * PLAYER_TARGET_VELOCITY),
-                    0.0f,
-                    (static_cast<float> (window_dims->width) - player->body->w)
+                (*player->pos->x + 1 * PLAYER_TARGET_VELOCITY),
+                0.0f,
+                (static_cast<float> (window_dims->width) - player->body->w)
             );
             break;
-        case SDLK_r:
-        case SDL_SCANCODE_R:
-            player_changed = 0;
-            connect_to_server(player);
+        case SDL_SCANCODE_LSHIFT:
+            PLAYER_TARGET_VELOCITY = PLAYER_VELOCITY * 16.0f;
             break;
-        case SDLK_LSHIFT:
-            PLAYER_TARGET_VELOCITY = PLAYER_VELOCITY * 4.0f;
-            break;
-        case SDLK_LCTRL:
+        case SDL_SCANCODE_LCTRL:
             PLAYER_TARGET_VELOCITY = PLAYER_VELOCITY / 4.0f;
             break;
-        case SDLK_SPACE:
+        case SDL_SCANCODE_SPACE:
             break;
         default:
-            printf("%d\n", keycode);
+//            printf("%d\n", keycode);
             player_changed = 0;
             break;
     }
     if (player_changed) {
         write_int_to_network_client(network_client, MOVE);
         write_player_to_network_buff(player);
+        game_state->network_used = 1;
     }
 }
 
 void
-handle_keyup(SDL_Keycode keycode, client_game_state *game_state) {
+handle_keyup(SDL_Scancode keycode, volatile client_game_state *game_state) {
     switch (keycode) {
-        case SDLK_LSHIFT:
-        case SDLK_LCTRL:
+        case SDL_SCANCODE_LSHIFT:
+        case SDL_SCANCODE_LCTRL:
             PLAYER_TARGET_VELOCITY = PLAYER_VELOCITY;
             break;
+        case SDL_SCANCODE_R:
+            game_state->network_used = 1;
+            connect_to_server(game_state, game_state->player);
+            break;
         default:
-            printf("%d\n", keycode);
             break;
     }
 }
@@ -197,19 +189,22 @@ purge_network_buff() {
 }
 
 void
-connect_to_server(player_obj *player) {
+connect_to_server(volatile client_game_state *game_state, player_obj *player) {
     CompressedUnicodeString *compressed_username = compress_into_bytes_array(player->username);
     write_int_to_network_client(network_client, LOGIN); // 4
     write_player_to_network_buff(player);  // 16
     memmove(
-            network_client->buffer->data + network_client->buffer->fill,
-            compressed_username->data,
-            compressed_username->len
+        network_client->buffer->data + network_client->buffer->fill,
+        compressed_username->data,
+        compressed_username->len
     );
     network_client->buffer->fill += compressed_username->len;
-    send_message_with_client_only(network_client);
+    game_state->network_queue->push_back(network_client);
+//    send_message_with_client_only(network_client);
+
     purge_network_buff();
     free(compressed_username);
+    keyread_locked = false;
 }
 
 void
@@ -218,9 +213,9 @@ disconnect_from_server(player_obj *player) {
     write_int_to_network_client(network_client, DISCONNECT);
     write_int_to_network_client(network_client, player->id);
     memmove(
-            network_client->buffer->data + network_client->buffer->fill,
-            compressed_username->data,
-            compressed_username->len
+        network_client->buffer->data + network_client->buffer->fill,
+        compressed_username->data,
+        compressed_username->len
     );
     network_client->buffer->fill += compressed_username->len;
     send_message_with_client_only(network_client);
@@ -230,11 +225,10 @@ disconnect_from_server(player_obj *player) {
 
 void
 main_loop(
-        SDL_Renderer *renderer,
-        client_game_state *game_state
+    SDL_Renderer *renderer,
+    volatile client_game_state *game_state
 ) {
-    player_obj *player = game_state->player;
-    int network_used = 0;
+//    player_obj *player = game_state->player;
     event_handlers.keydown = handle_keydown;
     event_handlers.keyup = handle_keyup;
 
@@ -245,61 +239,30 @@ main_loop(
     long long time_counter = 0;
     long long time_counter_threshold = 1e9;
     long long updates = 0;
-    double UPS;
     SDL_Event event;
 
     const Uint8 *keyboard_state;
     double target_ups = 600.0;
-    long long target_update_ns = static_cast<long long>(1e9 / target_ups);
+    auto target_update_ns = static_cast<long long>(1e9 / target_ups);
     double world_timer = 0.0;
-
-
-    player_obj *shield;
-    shield = reinterpret_cast<player_obj *>(malloc(sizeof(player_obj_s)));
-    if (shield == nullptr) {
-        printf("unable to init shield");
-        exit(-1);
-    }
-    std::random_device dev;
-    std::mt19937 rng(dev());
-    std::uniform_int_distribution color(0, 0xffffff);
-
-//    unsigned int shield_radius = (window_dims->height > window_dims->width) ? window_dims->width / 4 :
-//                                 window_dims->height / 4;
-    unsigned int shield_radius = 20;
-    float shield_radial_speed = M_PI * 4;
-//    shield->color = color(rng) << 8 | 0xff;
-    shield->color = 719700991;
-    shield->body = new SDL_FRect{
-            (float) game_state->window_dims->width / 4.0f,
-            (float) game_state->window_dims->height / 4.0f,
-            4.0,
-            4.0
-    };
-    shield->pos = new player_pos{
-            &shield->body->x,
-            &shield->body->y
-    };
-    shield->id = last_entity_id++;
-    printf("shield color: %u\n", shield->color);
 
     PLAYER_VELOCITY = (float) (PLAYER_VELOCITY * 60 * 1e2 / (double) target_update_ns);
     PLAYER_TARGET_VELOCITY = PLAYER_VELOCITY;
-    connect_to_server(player);
+    connect_to_server(game_state, game_state->player);
     last_update = std::chrono::high_resolution_clock::now();
 
-    const int TRACES_POINTS = 10000;
-    SDL_FRect trace[3 * TRACES_POINTS]{};
-    int last_trace_id = 0;
-
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    long long last_local_tick_counter = 0;
 
     while (running) {
         while (SDL_PollEvent(&event) != 0) {
             switch (event.type) {
                 case SDL_EVENT_KEY_UP:
+                    keyread_locked = true;
+                    event_handlers.keyup(event.key.keysym.scancode, game_state);
+                    break;
                 case SDL_EVENT_KEY_DOWN:
-                    network_used = 1;
+                    keyread_locked = true;
                     break;
             }
         }
@@ -307,23 +270,23 @@ main_loop(
         keyboard_state = SDL_GetKeyboardState(nullptr);
         if (keyboard_state[SDL_SCANCODE_ESCAPE]) {
             running = false;
-            disconnect_from_server(player);
+            disconnect_from_server(game_state->player);
         }
 
         if (keyboard_state[SDL_SCANCODE_DOWN] || keyboard_state[SDL_SCANCODE_S]) {
-            event_handlers.keydown(SDL_SCANCODE_TO_KEYCODE(SDL_SCANCODE_DOWN), game_state);
+            event_handlers.keydown(SDL_SCANCODE_DOWN, game_state);
         }
 
         if (keyboard_state[SDL_SCANCODE_LEFT] || keyboard_state[SDL_SCANCODE_A]) {
-            event_handlers.keydown(SDL_SCANCODE_TO_KEYCODE(SDL_SCANCODE_LEFT), game_state);
+            event_handlers.keydown(SDL_SCANCODE_LEFT, game_state);
         }
 
         if (keyboard_state[SDL_SCANCODE_RIGHT] || keyboard_state[SDL_SCANCODE_D]) {
-            event_handlers.keydown(SDL_SCANCODE_TO_KEYCODE(SDL_SCANCODE_RIGHT), game_state);
+            event_handlers.keydown(SDL_SCANCODE_RIGHT, game_state);
         }
 
         if (keyboard_state[SDL_SCANCODE_UP] || keyboard_state[SDL_SCANCODE_W]) {
-            event_handlers.keydown(SDL_SCANCODE_TO_KEYCODE(SDL_SCANCODE_UP), game_state);
+            event_handlers.keydown(SDL_SCANCODE_UP, game_state);
         }
 
         if (keyboard_state[SDL_SCANCODE_R]) {
@@ -331,75 +294,27 @@ main_loop(
         }
 
         if (keyboard_state[SDL_SCANCODE_LSHIFT]) {
-            event_handlers.keydown(SDL_SCANCODE_TO_KEYCODE(SDL_SCANCODE_LSHIFT), game_state);
+            event_handlers.keydown(SDL_SCANCODE_LSHIFT, game_state);
         } else {
-            event_handlers.keyup(SDL_SCANCODE_TO_KEYCODE(SDL_SCANCODE_LSHIFT), game_state);
+            event_handlers.keyup(SDL_SCANCODE_LSHIFT, game_state);
         }
 
         if (keyboard_state[SDL_SCANCODE_LCTRL]) {
-            event_handlers.keydown(SDL_SCANCODE_TO_KEYCODE(SDL_SCANCODE_LCTRL), game_state);
+            event_handlers.keydown(SDL_SCANCODE_LCTRL, game_state);
         } else {
-            event_handlers.keyup(SDL_SCANCODE_TO_KEYCODE(SDL_SCANCODE_LCTRL), game_state);
+            event_handlers.keyup(SDL_SCANCODE_LCTRL, game_state);
         }
 
-//        *player->pos->x = initX + static_cast<float> (100 * cos(world_timer));
-//        *player->pos->y = initY + static_cast<float> (100 * sin(world_timer));
-
-        *shield->pos->x =
-                player->body->x + player->body->w / 2 +
-                static_cast<float> (shield_radius * cos(world_timer * shield_radial_speed * 2));
-        *shield->pos->y =
-                player->body->y + player->body->h / 2 +
-                static_cast<float> (shield_radius * sin(world_timer * shield_radial_speed * 2));
-
-        trace[last_trace_id++] = {
-                *player->pos->x + player->body->w / 2,
-                *player->pos->y + player->body->h / 2,
-                1.0,
-                1.0
-        };
-        trace[last_trace_id++] = {
-                *shield->pos->x,
-                *shield->pos->y,
-                1.0,
-                1.0
-        };
-
-        if (last_trace_id > (TRACES_POINTS - 3)) {
-            last_trace_id -= 3;
-            memmove(trace, trace + 3, (last_trace_id) * sizeof(SDL_FRect));
-        }
-
-        if (network_used) {
+        if (game_state->network_used && keyread_locked) {
             send_message_with_client_only(network_client);
             purge_network_buff();
-            network_used = 0;
+            game_state->network_used = 0;
+            keyread_locked = false;
         }
 
         SDL_RenderClear(renderer);
-        SDL_SetRenderDrawColor(renderer, player->color);
-        SDL_RenderFillRect(renderer, player->body);
-        SDL_SetRenderDrawColor(renderer, shield->color);
-        SDL_RenderFillRect(renderer, shield->body);
-
-        for (int i = 0; i < 2 * std::min(TRACES_POINTS, last_trace_id); i += 2) {
-            SDL_SetRenderDrawColor(
-                    renderer,
-                    (player->color >> 8) << 8 | (0xff * i / std::min(TRACES_POINTS, last_trace_id))
-            );
-            SDL_RenderFillRect(
-                    renderer,
-                    &trace[i]
-            );
-            SDL_SetRenderDrawColor(
-                    renderer,
-                    (shield->color >> 8) << 8 | (0xff * i / std::min(TRACES_POINTS, last_trace_id))
-            );
-            SDL_RenderFillRect(
-                    renderer,
-                    &trace[i + 1]
-            );
-        }
+        SDL_SetRenderDrawColor(renderer, game_state->player->color);
+        SDL_RenderFillRect(renderer, game_state->player->body);
 
         SDL_SetRenderDrawColor(renderer, BACKGROUND);
         SDL_RenderPresent(renderer);
@@ -408,56 +323,34 @@ main_loop(
 
         diff = now - last_update;
         time_counter += diff.count();
-        updates++;
 
         if (time_counter >= time_counter_threshold - target_update_ns) {
-            UPS = (double) updates * 1e9 / (double) time_counter;
-//            printf(
-//                    "ups=%f/s, timer_counter=%llds, updates=%lld, target_sleep_time=%lldms, diff=%lldms\n",
-//                    UPS,
-//                    time_counter,
-//                    updates,
-//                    std::max(std::max((target_update_ns) - diff.count(), 0ll), target_update_ns),
-//                    diff.count()
-//            );
-            updates = 0;
             time_counter = 0.0;
         }
 
-//        usleep(
-//                (useconds_t) std::max(
-//                        std::max(
-//                                (long long) ((double) (target_update_ns - diff.count()) / 1e3),
-//                                0ll
-//                        ),
-//                        (long long) ((double) target_update_ns / 1e3)
-//                )
-//        );
+        usleep(
+            (useconds_t) std::max(
+                std::max(
+                    (long long) ((double) (target_update_ns - diff.count()) / 1e3),
+                    0ll
+                ),
+                (long long) ((double) target_update_ns / 1e3)
+            )
+        );
         world_timer += (double) target_update_ns / 1e9;
         last_update = now;
     }
-    free(shield);
 }
 
 void
 SDL_SetRenderDrawColor(SDL_Renderer *renderer, unsigned int color) {
     SDL_SetRenderDrawColor(
-            renderer,
-            (color & RED_MASK) >> 24,
-            (color & GREEN_MASK) >> 16,
-            (color & BLUE_MASK) >> 8,
-            color & ALPHA_MASK
+        renderer,
+        (color & RED_MASK) >> 24,
+        (color & GREEN_MASK) >> 16,
+        (color & BLUE_MASK) >> 8,
+        color & ALPHA_MASK
     );
-}
-
-SDL_Renderer *
-create_renderer() {
-
-}
-
-SDL_Window *
-create_window() {
-
 }
 
 struct window_dims_s *
@@ -476,10 +369,11 @@ prepare_display() {
 }
 
 void
-run_window() {
+run_game_client(int argc, char **argv) {
     struct server_info_s *server_params;
-    int argc = 4;
-    char const *argv[] = {nullptr, "inet", "127.0.0.1", "10312"};
+    pthread_t *network_thread = malloc_safe(pthread_t *, network_thread, sizeof(pthread_t));
+    pthread_attr_t *attr = nullptr;
+//    char const *argv[] = {nullptr, "inet", "127.0.0.1", "10312"};
 //    char const *argv[] = {nullptr, "inet", "161.35.71.57", "10312"};
     puts("server connection info:");
     for (int i = 0; i < argc; i++) {
@@ -492,12 +386,13 @@ run_window() {
         exit(-1);
     }
 
-//    if (argc == 1) {
-//        printf("usage: %s <unix|local> [descriptor path] or <inet> [host] [port]\n", argv[0]);
-//        exit(-1);
-//    }
+    if (argc == 1) {
+        printf("usage: %s <unix|local> [descriptor path] or <inet> [host] [port] <username>\n", argv[0]);
+        exit(-1);
+    }
 
     fill_server_info(server_params, argc, const_cast<char **>(argv));
+    printf("server to connect to: %s:%d\n", server_params->address, server_params->port);
 
     puts("initing SDL..");
     if (SDL_Init(SDL_INIT_VIDEO)) {
@@ -505,7 +400,7 @@ run_window() {
         return;
     }
     puts("done");
-    auto *game_state = static_cast<client_game_state *>(malloc(sizeof(client_game_state)));
+    volatile auto *game_state = static_cast<client_game_state *>(malloc(sizeof(client_game_state)));
     struct window_dims_s *window_dims = prepare_display();
     game_state->window_dims = window_dims;
     puts("constructing player...");
@@ -521,29 +416,24 @@ run_window() {
     std::uniform_int_distribution initX(0.0f, static_cast<float>(window_dims->width));
     std::uniform_int_distribution initY(0.0f, static_cast<float>(window_dims->height));
 
-//    player->color = color(rng) << 8 | 0xff;
     player->color = 12900112 << 8 | 0xff;
     player->body = new SDL_FRect{
-//            initX(rng),
-//            initY(rng),
-            static_cast<float>(window_dims->width / 2.0),
-            static_cast<float>(window_dims->height / 2.0),
-            8.0,
-            8.0
+        static_cast<float>(window_dims->width / 2.0),
+        static_cast<float>(window_dims->height / 2.0),
+        8.0,
+        8.0
     };
     player->pos = new player_pos{
-            &player->body->x,
-            &player->body->y
+        &player->body->x,
+        &player->body->y
     };
     player->id = last_entity_id++;
     calloc_safe(UnicodeString *, player->username, 1, sizeof(UnicodeString));
-    char const *username_raw = "Veritaris";
-//    calloc_safe(char *, username_raw, 64, sizeof(char));
-//    std::cout << "Enter username:" << std::endl;
-//    std::cin >> username_raw;
+    char const *username_raw = argv[argc - 1];
     player->username = read_into_unicode_string(username_raw);
+
     puts("player constructed");
-    printf("Logged in as: %s\n", compress_into_bytes_array(player->username)->data);
+    printf("Created player: %s\n", compress_into_bytes_array(player->username)->data);
     printf("player color: %u\n", player->color);
 
     printf("loading textures...");
@@ -552,16 +442,15 @@ run_window() {
 
     puts("setting up window and renderer...");
     SDL_Window *window = SDL_CreateWindow(
-            "game client",
-            static_cast<int>(window_dims->width),
-            static_cast<int>(window_dims->height),
-            SDL_EVENT_WINDOW_SHOWN | SDL_WINDOW_INPUT_FOCUS
+        "game client",
+        static_cast<int>(window_dims->width),
+        static_cast<int>(window_dims->height),
+        SDL_EVENT_WINDOW_SHOWN | SDL_WINDOW_INPUT_FOCUS
     );
     SDL_Renderer *renderer = SDL_CreateRenderer(
-            window,
-            nullptr,
-//            0
-            SDL_RENDERER_PRESENTVSYNC
+        window,
+        nullptr,
+        SDL_RENDERER_PRESENTVSYNC
     );
     SDL_SetRenderDrawColor(renderer, 0xffffffff);
     puts("window set up");
@@ -572,6 +461,15 @@ run_window() {
         std::cout << "unable to init network client, exiting" << std::endl;
         exit(-1);
     }
+    game_state->network_client = network_client;
+    game_state->network_queue = Deque(nullptr);
+    pthread_create(
+        network_thread,
+        attr,
+        reinterpret_cast<void *(*)(void *)>(start_network_thread),
+        (void *) game_state
+    );
+    puts("network thread started");
     puts("network client constructed");
 
     main_loop(renderer, game_state);
@@ -583,5 +481,5 @@ run_window() {
 
 int
 main([[maybe_unused]] int argc, char **argv) {
-    run_window();
+    run_game_client(argc, argv);
 }
